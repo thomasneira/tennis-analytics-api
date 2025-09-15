@@ -1,3 +1,4 @@
+require('dotenv').config({ path: '.env.local' });
 const fs = require('fs');
 const csv = require('csv-parser');
 const { query } = require('../utils/database');
@@ -5,132 +6,117 @@ const { query } = require('../utils/database');
 async function loadData() {
   console.log('🎾 Starting tennis data import...');
   
-  try {
-    await loadPlayers();
-    await loadMatches();
-    console.log('✅ Data import completed successfully!');
-  } catch (error) {
-    console.error('❌ Data import failed:', error);
-  }
-}
-
-async function loadPlayers() {
-  console.log('📝 Loading players...');
-  const players = new Map();
+  const players = new Set();
+  const matches = [];
+  
+  // Step 1: Read the entire CSV and collect all data
+  console.log('📖 Reading CSV file...');
   
   return new Promise((resolve, reject) => {
     fs.createReadStream('./data/atp_matches_2024.csv')
       .pipe(csv())
       .on('data', (row) => {
-        if (row.winner_id && !players.has(row.winner_id)) {
-          players.set(row.winner_id, {
-            atp_id: parseInt(row.winner_id),
-            name: row.winner_name,
-            country: row.winner_ioc,
-            height: row.winner_ht ? parseInt(row.winner_ht) : null,
-            hand: row.winner_hand,
-            current_rank: row.winner_rank ? parseInt(row.winner_rank) : null
-          });
-        }
+        // Collect unique players
+        if (row.winner_id) players.add(row.winner_id);
+        if (row.loser_id) players.add(row.loser_id);
         
-        if (row.loser_id && !players.has(row.loser_id)) {
-          players.set(row.loser_id, {
-            atp_id: parseInt(row.loser_id),
-            name: row.loser_name,
-            country: row.loser_ioc,
-            height: row.loser_ht ? parseInt(row.loser_ht) : null,
-            hand: row.loser_hand,
-            current_rank: row.loser_rank ? parseInt(row.loser_rank) : null
-          });
-        }
+        // Store match data
+        matches.push(row);
       })
       .on('end', async () => {
         try {
-          console.log(`Found ${players.size} unique players`);
+          console.log(`Found ${players.size} unique players and ${matches.length} matches`);
           
-          for (const [id, player] of players) {
-            await query(`
-              INSERT INTO players (atp_id, name, country, height, hand, current_rank)
-              VALUES ($1, $2, $3, $4, $5, $6)
-              ON CONFLICT (atp_id) DO UPDATE SET
-                name = EXCLUDED.name,
-                country = EXCLUDED.country,
-                height = EXCLUDED.height,
-                hand = EXCLUDED.hand,
-                current_rank = EXCLUDED.current_rank
-            `, [player.atp_id, player.name, player.country, player.height, player.hand, player.current_rank]);
+          // Step 2: Insert all players first
+          console.log('👥 Inserting players...');
+          for (const playerId of players) {
+            await query(
+              'INSERT INTO players (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING',
+              [parseInt(playerId), `Player ${playerId}`]
+            );
+          }
+          console.log(`✅ Inserted ${players.size} players`);
+          
+          // Step 3: Insert all matches
+          console.log('🎾 Inserting matches...');
+          let matchCount = 0;
+          for (const match of matches) {
+            try {
+              // Only insert columns that exist in your database schema
+              await query(`
+                INSERT INTO matches (
+                  tourney_id, tourney_name, surface, tourney_level, tourney_date,
+                  winner_id, loser_id, score, best_of, round, minutes,
+                  w_ace, w_df, w_svpt, w_1stin, w_1stwon, w_2ndwon, w_svgms, 
+                  w_bpsaved, w_bpfaced, l_ace, l_df, l_svpt, l_1stin, l_1stwon, 
+                  l_2ndwon, l_svgms, l_bpsaved, l_bpfaced,
+                  winner_rank, winner_rank_points, loser_rank, loser_rank_points
+                ) VALUES (
+                  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                  $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29,
+                  $30, $31, $32, $33
+                )
+              `, [
+                match.tourney_id,
+                match.tourney_name,
+                match.surface,
+                match.tourney_level,
+                match.tourney_date,
+                parseInt(match.winner_id),
+                parseInt(match.loser_id),
+                match.score,
+                match.best_of ? parseInt(match.best_of) : null,
+                match.round,
+                match.minutes ? parseInt(match.minutes) : null,
+                match.w_ace ? parseInt(match.w_ace) : null,
+                match.w_df ? parseInt(match.w_df) : null,
+                match.w_svpt ? parseInt(match.w_svpt) : null,
+                match.w_1stIn ? parseInt(match.w_1stIn) : null,
+                match.w_1stWon ? parseInt(match.w_1stWon) : null,
+                match.w_2ndWon ? parseInt(match.w_2ndWon) : null,
+                match.w_SvGms ? parseInt(match.w_SvGms) : null,
+                match.w_bpSaved ? parseInt(match.w_bpSaved) : null,
+                match.w_bpFaced ? parseInt(match.w_bpFaced) : null,
+                match.l_ace ? parseInt(match.l_ace) : null,
+                match.l_df ? parseInt(match.l_df) : null,
+                match.l_svpt ? parseInt(match.l_svpt) : null,
+                match.l_1stIn ? parseInt(match.l_1stIn) : null,
+                match.l_1stWon ? parseInt(match.l_1stWon) : null,
+                match.l_2ndWon ? parseInt(match.l_2ndWon) : null,
+                match.l_SvGms ? parseInt(match.l_SvGms) : null,
+                match.l_bpSaved ? parseInt(match.l_bpSaved) : null,
+                match.l_bpFaced ? parseInt(match.l_bpFaced) : null,
+                match.winner_rank ? parseInt(match.winner_rank) : null,
+                match.winner_rank_points ? parseInt(match.winner_rank_points) : null,
+                match.loser_rank ? parseInt(match.loser_rank) : null,
+                match.loser_rank_points ? parseInt(match.loser_rank_points) : null
+              ]);
+              
+              matchCount++;
+              if (matchCount % 100 === 0) {
+                console.log(`📊 Processed ${matchCount}/${matches.length} matches`);
+              }
+            } catch (error) {
+              console.error(`Error inserting match ${matchCount + 1}:`, error.message);
+              // Continue with next match instead of stopping
+            }
           }
           
-          console.log('✅ Players loaded successfully!');
+          console.log(`✅ Successfully imported ${matchCount} matches`);
+          console.log('🎉 Data import completed!');
           resolve();
         } catch (error) {
+          console.error('❌ Data import failed:', error);
           reject(error);
         }
-      });
-  });
-}
-
-async function loadMatches() {
-  console.log('🏆 Loading matches...');
-  let matchCount = 0;
-  
-  return new Promise((resolve, reject) => {
-    fs.createReadStream('./data/atp_matches_2024.csv')
-      .pipe(csv())
-      .on('data', async (row) => {
-        try {
-          await query(`
-            INSERT INTO matches (
-              tourney_id, tourney_name, surface, tourney_level, tourney_date,
-              winner_id, loser_id, score, best_of, round, minutes,
-              w_ace, w_df, w_svpt, w_1stin, w_1stwon, w_2ndwon, w_svgms, w_bpsaved, w_bpfaced,
-              l_ace, l_df, l_svpt, l_1stin, l_1stwon, l_2ndwon, l_svgms, l_bpsaved, l_bpfaced,
-              winner_rank, winner_rank_points, loser_rank, loser_rank_points
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
-          `, [
-            row.tourney_id, row.tourney_name, row.surface, row.tourney_level, 
-            row.tourney_date, parseInt(row.winner_id), parseInt(row.loser_id),
-            row.score, parseInt(row.best_of), row.round, 
-            row.minutes ? parseInt(row.minutes) : null,
-            row.w_ace ? parseInt(row.w_ace) : null,
-            row.w_df ? parseInt(row.w_df) : null,
-            row.w_svpt ? parseInt(row.w_svpt) : null,
-            row.w_1stIn ? parseInt(row.w_1stIn) : null,
-            row.w_1stWon ? parseInt(row.w_1stWon) : null,
-            row.w_2ndWon ? parseInt(row.w_2ndWon) : null,
-            row.w_SvGms ? parseInt(row.w_SvGms) : null,
-            row.w_bpSaved ? parseInt(row.w_bpSaved) : null,
-            row.w_bpFaced ? parseInt(row.w_bpFaced) : null,
-            row.l_ace ? parseInt(row.l_ace) : null,
-            row.l_df ? parseInt(row.l_df) : null,
-            row.l_svpt ? parseInt(row.l_svpt) : null,
-            row.l_1stIn ? parseInt(row.l_1stIn) : null,
-            row.l_1stWon ? parseInt(row.l_1stWon) : null,
-            row.l_2ndWon ? parseInt(row.l_2ndWon) : null,
-            row.l_SvGms ? parseInt(row.l_SvGms) : null,
-            row.l_bpSaved ? parseInt(row.l_bpSaved) : null,
-            row.l_bpFaced ? parseInt(row.l_bpFaced) : null,
-            row.winner_rank ? parseInt(row.winner_rank) : null,
-            row.winner_rank_points ? parseInt(row.winner_rank_points) : null,
-            row.loser_rank ? parseInt(row.loser_rank) : null,
-            row.loser_rank_points ? parseInt(row.loser_rank_points) : null
-          ]);
-          
-          matchCount++;
-          if (matchCount % 100 === 0) {
-            console.log(`Loaded ${matchCount} matches...`);
-          }
-        } catch (error) {
-          console.error('Error inserting match:', error);
-        }
       })
-      .on('end', () => {
-        console.log(`✅ ${matchCount} matches loaded successfully!`);
-        resolve();
-      });
+      .on('error', reject);
   });
 }
 
-if (require.main === module) {
-  loadData();
-}
+loadData()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error('Import failed:', error);
+    process.exit(1);
+  });

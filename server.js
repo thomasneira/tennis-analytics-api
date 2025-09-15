@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -5,6 +6,7 @@ const helmet = require('helmet');
 
 const playersRouter = require('./routes/players');
 const statsRouter = require('./routes/stats');
+const matchesRouter = require('./routes/matches');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -21,6 +23,7 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/players', playersRouter);
 app.use('/api/stats', statsRouter);
+app.use('/api/matches', matchesRouter);
 
 // Health check
 app.get('/', (req, res) => {
